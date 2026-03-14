@@ -14,6 +14,7 @@ using json = nlohmann::json;
 using namespace std;
 
 const int INF = numeric_limits<int>::max();
+const long long INF_LL = 1e18; // Stronger INF for long long distances
 
 // --- Data Structures ---
 
@@ -34,10 +35,11 @@ struct BSTNode {
     int destId;
     int nextHop;
     int totalCost;
+    int parentId;
     BSTNode* left;
     BSTNode* right;
 
-    BSTNode(int d, int nh, int c) : destId(d), nextHop(nh), totalCost(c), left(nullptr), right(nullptr) {}
+    BSTNode(int d, int nh, int c, int p) : destId(d), nextHop(nh), totalCost(c), parentId(p), left(nullptr), right(nullptr) {}
 };
 
 class RoutingTable {
@@ -46,23 +48,23 @@ public:
 
     RoutingTable() : root(nullptr) {}
 
-    BSTNode* insert(BSTNode* node, int dest, int nextHop, int cost) {
-        if (!node) return new BSTNode(dest, nextHop, cost);
+    BSTNode* insert(BSTNode* node, int dest, int nextHop, int cost, int parent) {
+        if (!node) return new BSTNode(dest, nextHop, cost, parent);
         if (dest < node->destId)
-            node->left = insert(node->left, dest, nextHop, cost);
+            node->left = insert(node->left, dest, nextHop, cost, parent);
         else if (dest > node->destId)
-            node->right = insert(node->right, dest, nextHop, cost);
+            node->right = insert(node->right, dest, nextHop, cost, parent);
         return node;
     }
 
-    void addRoute(int dest, int nextHop, int cost) {
-        root = insert(root, dest, nextHop, cost);
+    void addRoute(int dest, int nextHop, int cost, int parent) {
+        root = insert(root, dest, nextHop, cost, parent);
     }
 
     void toJSON(BSTNode* node, json& j) {
         if (!node) return;
         toJSON(node->left, j);
-        j.push_back({{"destination", node->destId}, {"next_hop", node->nextHop}, {"cost", node->totalCost}});
+        j.push_back({{"destination", node->destId}, {"next_hop", node->nextHop}, {"cost", node->totalCost}, {"parent", node->parentId}});
         toJSON(node->right, j);
     }
 };
@@ -80,21 +82,25 @@ public:
         if (id >= V) V = id + 1;
     }
 
-    void addEdge(int u, int v, int w, int bw) {
-        adj[u].push_back({v, w, bw, true});
-        adj[v].push_back({u, w, bw, true});
+    void addEdge(int u, int v, int w, int bw, bool active = true) {
+        adj[u].push_back({v, w, bw, active});
+        adj[v].push_back({u, w, bw, active});
     }
 
     // --- Dijkstra ---
-    pair<map<int, int>, map<int, int>> dijkstra(int src) {
-        map<int, int> dist;
+    pair<map<int, long long>, map<int, int>> dijkstra(int src) {
+        map<int, long long> dist;
         map<int, int> parent;
         
-        for (auto const& p : nodes) {
-            dist[p.first] = INF;
+        for (auto const& p : nodes) dist[p.first] = INF_LL;
+        for (auto const& p : adj) {
+            if (dist.find(p.first) == dist.end()) dist[p.first] = INF_LL;
+            for (auto const& e : p.second) if (dist.find(e.to) == dist.end()) dist[e.to] = INF_LL;
         }
 
-        priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> pq;
+        if (dist.find(src) == dist.end()) return {dist, parent};
+
+        priority_queue<pair<long long, int>, vector<pair<long long, int>>, greater<pair<long long, int>>> pq;
 
         dist[src] = 0;
         parent[src] = -1;
@@ -102,18 +108,55 @@ public:
 
         while (!pq.empty()) {
             int u = pq.top().second;
-            int d = pq.top().first;
+            long long d = pq.top().first;
             pq.pop();
 
             if (d > dist[u]) continue;
 
             for (auto& edge : adj[u]) {
-                if (edge.active && dist[u] + edge.weight < dist[edge.to]) {
+                if (edge.active && dist[u] != INF_LL && dist[u] + edge.weight < dist[edge.to]) {
                     dist[edge.to] = dist[u] + edge.weight;
                     parent[edge.to] = u;
                     pq.push({dist[edge.to], edge.to});
                 }
             }
+        }
+        return {dist, parent};
+    }
+
+    // --- Bellman-Ford ---
+    pair<map<int, long long>, map<int, int>> bellmanFord(int src) {
+        map<int, long long> dist;
+        map<int, int> parent;
+        set<int> allNodes;
+
+        for (auto const& p : nodes) allNodes.insert(p.first);
+        for (auto const& p : adj) {
+            allNodes.insert(p.first);
+            for (auto const& e : p.second) allNodes.insert(e.to);
+        }
+
+        for (int node : allNodes) dist[node] = INF_LL;
+        if (allNodes.find(src) == allNodes.end()) return {dist, parent};
+
+        dist[src] = 0;
+        parent[src] = -1;
+
+        int numV = allNodes.size();
+        for (int i = 0; i < numV - 1; ++i) {
+            bool changed = false;
+            for (auto const& nodeEntry : adj) {
+                int u = nodeEntry.first;
+                if (dist[u] == INF_LL) continue;
+                for (auto const& edge : nodeEntry.second) {
+                    if (edge.active && dist[u] + edge.weight < dist[edge.to]) {
+                        dist[edge.to] = dist[u] + edge.weight;
+                        parent[edge.to] = u;
+                        changed = true;
+                    }
+                }
+            }
+            if (!changed) break;
         }
         return {dist, parent};
     }
@@ -144,7 +187,7 @@ public:
         return false;
     }
 
-    // --- MST (Prim's) ---
+    // --- MST (Prim's) Algorithm ---
     vector<tuple<int, int, int>> getMST() {
         vector<tuple<int, int, int>> mstEdges;
         if (nodes.empty()) return mstEdges;
@@ -251,22 +294,36 @@ int main() {
             graph.addNode(n["id"], n["label"], n.value("type", "Router"));
         }
         for (auto& e : input["links"]) {
-            graph.addEdge(e["source"], e["target"], e["cost"], e.value("bandwidth", 100));
+            graph.addEdge(e["source"], e["target"], e["cost"], e.value("bandwidth", 100), e.value("active", true));
         }
 
         json output;
         string command = input["command"];
 
         if (command == "route") {
+            if (!input.contains("source") || input["source"].is_null() || !input.contains("target") || input["target"].is_null()) {
+                throw runtime_error("Source and Target IDs are required for routing.");
+            }
             int src = input["source"], dest = input["target"];
-            auto result = graph.dijkstra(src);
-            map<int, int> dist = result.first, parent = result.second;
+            string algo = input.value("algorithm", "dijkstra");
+            
+            pair<map<int, long long>, map<int, int>> result;
+            if (algo == "bellman-ford") {
+                result = graph.bellmanFord(src);
+            } else {
+                result = graph.dijkstra(src);
+            }
+            
+            map<int, long long> dist = result.first;
+            map<int, int> parent = result.second;
 
             vector<int> path;
-            if (dist[dest] != INF) {
+            if (dist.count(dest) && dist[dest] != INF_LL) {
                 int curr = dest;
-                while (curr != -1) {
+                set<int> visited; // Safety against cycles in parent map
+                while (curr != -1 && visited.find(curr) == visited.end()) {
                     path.push_back(curr);
+                    visited.insert(curr);
                     if (parent.find(curr) == parent.end()) break;
                     curr = parent[curr];
                 }
@@ -274,15 +331,20 @@ int main() {
             }
 
             output["path"] = path;
-            output["total_cost"] = (dist[dest] == INF) ? -1 : dist[dest];
+            output["total_cost"] = (dist.count(dest) && dist[dest] != INF_LL) ? dist[dest] : -1;
             
             RoutingTable rt;
             for(auto const& pair : dist) {
-                if (pair.first == src || pair.second == INF) continue;
+                if (pair.first == src || pair.second == INF_LL) continue;
                 int curr = pair.first;
+                int original_parent = parent[curr];
                 if (parent.find(curr) != parent.end()) {
-                    while(parent[curr] != src && parent[curr] != -1) curr = parent[curr];
-                    rt.addRoute(pair.first, curr, pair.second);
+                    set<int> visited;
+                    while(parent[curr] != src && parent[curr] != -1 && visited.find(curr) == visited.end()) {
+                        visited.insert(curr);
+                        curr = parent[curr];
+                    }
+                    rt.addRoute(pair.first, curr, pair.second, original_parent);
                 }
             }
             json rtJson = json::array();

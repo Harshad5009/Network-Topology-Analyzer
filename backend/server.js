@@ -41,18 +41,24 @@ app.post('/api/process', (req, res) => {
             console.error(`C++ Execution Error (Code ${code}): ${errorData}`);
             return res.status(500).json({ 
                 error: "Algorithm Engine failed", 
-                details: errorData || "Unknown C++ crash" 
+                details: errorData || "Unknown C++ crash",
+                code: code
             });
         }
         
         try {
+            if (!outputData.trim()) {
+                throw new Error("No output from algorithm engine");
+            }
             // Parse the result back to JSON
             const jsonResponse = JSON.parse(outputData);
             res.json(jsonResponse);
         } catch (e) {
-            console.error("JSON Parsing Error from C++ output:", outputData);
+            console.error("Backend Error Detail:", e.message);
+            console.error("Raw Output from C++:", outputData);
             res.status(500).json({ 
                 error: "Invalid data format from backend engine", 
+                details: e.message,
                 raw: outputData 
             });
         }
