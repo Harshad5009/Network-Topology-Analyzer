@@ -28,7 +28,6 @@ const TopologySchematic = ({ graphData, analysisResult, inputs }) => {
     }
 
     const src = parseInt(inputs.startNode);
-    const dest = parseInt(inputs.endNode);
     const pathNodes = analysisResult.path || [];
 
     // 1. Build Adjacency List for the Tree (Parent -> [Children])
@@ -290,6 +289,7 @@ function App() {
                     <div style={styles.sectionTitle}>Add Link</div>
                     <input style={styles.input} placeholder="Src ID" onChange={e => setInputs({ ...inputs, srcId: e.target.value })} />
                     <input style={styles.input} placeholder="Tgt ID" onChange={e => setInputs({ ...inputs, tgtId: e.target.value })} />
+                    <input style={styles.input} type="number" placeholder="Cost (default: 10)" onChange={e => setInputs({ ...inputs, linkCost: e.target.value || 10 })} />
                     <button style={styles.btnPrimary} onClick={addLink}>Connect Devices</button>
                     
                     <div style={styles.divider}></div>
